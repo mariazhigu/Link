@@ -1,0 +1,436 @@
+diff --git a/contexts/ProjectsContext.tsx b/contexts/ProjectsContext.tsx
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/contexts/ProjectsContext.tsx
+@@
++import React, {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++} from 'react';
++import AsyncStorage from '@react-native-async-storage/async-storage';
++
++export type Block = {
++  id: string;
++  type: 'text' | 'button' | 'image' | 'spacer';
++  [k: string]: any;
++};
++
++export type Project = {
++  id: string;
++  name: string;
++  blocks: Block[];
++};
++
++type ProjectsContextValue = {
++  projects: Project[];
++  currentProject: Project | null;
++  setCurrentProjectId: (id: string | null) => void;
++  setProject: (projectId: string, patch: Partial<Project>) => void;
++  updateBlock: (blockId: string, patch: Partial<Block>) => void;
++  addProject: (p: Project) => void;
++  removeProject: (projectId: string) => void;
++};
++
++const STORAGE_KEY = 'linkpro-projects';
++const STORAGE_CURR = 'linkpro-current-project-id';
++
++function useDebounced<T extends (...a: any[]) => void>(fn: T, delay = 500) {
++  const t = useRef<ReturnType<typeof setTimeout> | null>(null);
++  return useCallback((...args: Parameters<T>) => {
++    if (t.current) clearTimeout(t.current);
++    t.current = setTimeout(() => fn(...args), delay);
++  }, [fn, delay]);
++}
++
++// ВАЖНО: контекст как ЗНАЧЕНИЕ, не тип
++const ProjectsContext = createContext<ProjectsContextValue | undefined>(undefined);
++
++export function useProjects() {
++  const ctx = useContext(ProjectsContext);
++  if (!ctx) throw new Error('useProjects must be used within ProjectsProvider');
++  return ctx;
++}
++
++export function ProjectsProvider({ children }: { children: React.ReactNode }) {
++  const [projects, setProjects] = useState<Project[]>([]);
++  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
++
++  // загрузка из AsyncStorage
++  useEffect(() => {
++    (async () => {
++      try {
++        const [rawProjects, rawCurr] = await Promise.all([
++          AsyncStorage.getItem(STORAGE_KEY),
++          AsyncStorage.getItem(STORAGE_CURR),
++        ]);
++        if (rawProjects) setProjects(JSON.parse(rawProjects));
++        if (rawCurr) setCurrentProjectId(JSON.parse(rawCurr));
++      } catch (e) {
++        console.warn('Projects load error', e);
++      }
++    })();
++  }, []);
++
++  const currentProject = useMemo(
++    () => projects.find((p) => p.id === currentProjectId) ?? null,
++    [projects, currentProjectId]
++  );
++
++  const setProject = useCallback((projectId: string, patch: Partial<Project>) => {
++    setProjects((prev) =>
++      prev.map((p) => (p.id === projectId ? { ...p, ...patch } : p))
++    );
++  }, []);
++
++  // Точечное обновление блока без избыточных ререндеров
++  const updateBlock = useCallback((blockId: string, patch: Partial<Block>) => {
++    setProjects((prev) =>
++      prev.map((p) => {
++        if (p.id !== currentProjectId) return p;
++        const blocks = (p.blocks ?? []).map((b) => (b.id === blockId ? { ...b, ...patch } : b));
++        return { ...p, blocks };
++      })
++    );
++  }, [currentProjectId]);
++
++  const addProject = useCallback((project: Project) => {
++    setProjects((prev) => [project, ...prev]);
++    setCurrentProjectId(project.id);
++  }, []);
++
++  const removeProject = useCallback((projectId: string) => {
++    setProjects((prev) => prev.filter((p) => p.id !== projectId));
++    setCurrentProjectId((curr) => (curr === projectId ? null : curr));
++  }, []);
++
++  const persist = useCallback(async (data: { projects: Project[]; currentProjectId: string | null }) => {
++    try {
++      await Promise.all([
++        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data.projects)),
++        AsyncStorage.setItem(STORAGE_CURR, JSON.stringify(data.currentProjectId)),
++      ]);
++    } catch (e) {
++      console.warn('Projects persist error', e);
++    }
++  }, []);
++  const persistDebounced = useDebounced(persist, 500);
++
++  useEffect(() => {
++    persistDebounced({ projects, currentProjectId });
++  }, [projects, currentProjectId, persistDebounced]);
++
++  const value: ProjectsContextValue = useMemo(() => ({
++    projects,
++    currentProject,
++    setCurrentProjectId,
++    setProject,
++    updateBlock,
++    addProject,
++    removeProject,
++  }), [projects, currentProject, updateBlock, setProject, addProject, removeProject]);
++
++  return (
++    <ProjectsContext.Provider value={value}>
++      {children}
++    </ProjectsContext.Provider>
++  );
++}
+diff --git a/screens/ProjectDashboard.tsx b/screens/ProjectDashboard.tsx
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/screens/ProjectDashboard.tsx
+@@
++import React, { useCallback, useMemo, useState } from 'react';
++import {
++  View,
++  Text,
++  ScrollView,
++  TextInput,
++  Pressable,
++  KeyboardAvoidingView,
++  Platform,
++  Modal,
++  StyleSheet,
++  Alert,
++} from 'react-native';
++import Slider from '@react-native-community/slider';
++import * as ImagePicker from 'expo-image-picker';
++import { LinearGradient } from 'expo-linear-gradient';
++import { MaterialCommunityIcons } from '@expo/vector-icons';
++
++import { useProjects, Block } from '../contexts/ProjectsContext';
++
++type DraftMap = Record<string, Partial<Block>>;
++
++export default function ProjectDashboard() {
++  const { currentProject, updateBlock } = useProjects();
++  const blocks: Block[] = currentProject?.blocks ?? [];
++
++  // локальный draft для плавных слайдеров/инпутов
++  const [draft, setDraft] = useState<DraftMap>({});
++  const getDraft = useCallback((b: Block) => ({ ...b, ...(draft[b.id] ?? {}) }), [draft]);
++  const setDraftField = useCallback((id: string, patch: Partial<Block>) => {
++    setDraft(prev => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...patch } }));
++  }, []);
++
++  // простой селектор иконок
++  const [iconPicker, setIconPicker] = useState<{ open: boolean; blockId?: string }>({ open: false });
++  const candidateIcons = useMemo(
++    () => ['link', 'flash', 'star', 'heart', 'share', 'send', 'email', 'phone', 'web', 'qrcode'],
++    []
++  );
++  const commitIcon = useCallback((iconName: string) => {
++    if (!iconPicker.blockId) return;
++    updateBlock(iconPicker.blockId, { iconName });
++    setIconPicker({ open: false });
++  }, [iconPicker.blockId, updateBlock]);
++
++  // выбор изображения
++  const pickImage = useCallback(async (blockId: string) => {
++    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
++    if (!perm.granted) {
++      Alert.alert('Нет доступа', 'Разрешите доступ к фото, чтобы выбрать изображение.');
++      return;
++    }
++    const result = await ImagePicker.launchImageLibraryAsync({
++      mediaTypes: ImagePicker.MediaTypeOptions.Images,
++      allowsEditing: true,
++      quality: 0.9,
++      selectionLimit: 1,
++      allowsMultipleSelection: false,
++    });
++    if (result.canceled) return;
++    const asset = result.assets?.[0];
++    if (!asset?.uri) return;
++    updateBlock(blockId, { uri: asset.uri });
++  }, [updateBlock]);
++
++  return (
++    <KeyboardAvoidingView
++      style={{ flex: 1 }}
++      behavior={Platform.select({ ios: 'padding', android: undefined })}
++    >
++      <LinearGradient
++        colors={['#0f172a', '#111827']}
++        start={{ x: 0, y: 0 }}
++        end={{ x: 1, y: 1 }}
++        style={{ flex: 1 }}
++      >
++        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="always">
++          {blocks.map((b) => {
++            const d = getDraft(b);
++
++            if (b.type === 'text') {
++              return (
++                <View key={b.id} style={styles.card}>
++                  <Text style={styles.label}>Текст</Text>
++                  <TextInput
++                    style={styles.input}
++                    placeholder="Введите текст…"
++                    defaultValue={b.text}
++                    onChangeText={(t) => setDraftField(b.id, { text: t })}
++                    onBlur={() => d.text !== b.text && updateBlock(b.id, { text: d.text })}
++                  />
++
++                  <Text style={styles.sub}>Размер шрифта: {d.fontSize ?? b.fontSize ?? 16}</Text>
++                  <Slider
++                    style={styles.slider}
++                    minimumValue={10}
++                    maximumValue={48}
++                    step={1}
++                    value={d.fontSize ?? b.fontSize ?? 16}
++                    onValueChange={(v) => setDraftField(b.id, { fontSize: v as number })}
++                    onSlidingComplete={(v) => updateBlock(b.id, { fontSize: v as number })}
++                  />
++                </View>
++              );
++            }
++
++            if (b.type === 'button') {
++              return (
++                <View key={b.id} style={styles.card}>
++                  <Text style={styles.label}>Кнопка</Text>
++
++                  <TextInput
++                    style={styles.input}
++                    placeholder="Заголовок"
++                    defaultValue={b.title}
++                    onChangeText={(t) => setDraftField(b.id, { title: t })}
++                    onBlur={() => d.title !== b.title && updateBlock(b.id, { title: d.title })}
++                  />
++
++                  <TextInput
++                    style={styles.input}
++                    placeholder="https://ссылка"
++                    defaultValue={b.url}
++                    autoCapitalize="none"
++                    keyboardType="url"
++                    onChangeText={(t) => setDraftField(b.id, { url: t })}
++                    onBlur={() => d.url !== b.url && updateBlock(b.id, { url: d.url })}
++                  />
++
++                  <View style={styles.row}>
++                    <Pressable
++                      style={styles.iconBtn}
++                      onPress={() => setIconPicker({ open: true, blockId: b.id })}
++                    >
++                      <MaterialCommunityIcons name={(b as any).iconName || 'link'} size={20} />
++                      <Text style={{ marginLeft: 8 }}>
++                        {(b as any).iconName ? (b as any).iconName : 'Выбрать иконку'}
++                      </Text>
++                    </Pressable>
++                  </View>
++
++                  <Text style={styles.sub}>Радиус: {d.radius ?? (b as any).radius ?? 12}</Text>
++                  <Slider
++                    style={styles.slider}
++                    minimumValue={0}
++                    maximumValue={32}
++                    step={1}
++                    value={d.radius ?? (b as any).radius ?? 12}
++                    onValueChange={(v) => setDraftField(b.id, { radius: v as number })}
++                    onSlidingComplete={(v) => updateBlock(b.id, { radius: v as number })}
++                  />
++                </View>
++              );
++            }
++
++            if (b.type === 'image') {
++              return (
++                <View key={b.id} style={styles.card}>
++                  <Text style={styles.label}>Изображение</Text>
++                  <Pressable onPress={() => pickImage(b.id)} style={styles.primaryBtn}>
++                    <MaterialCommunityIcons name="image" size={18} />
++                    <Text style={{ marginLeft: 8 }}>
++                      {(b as any).uri ? 'Заменить фото' : 'Выбрать фото'}
++                    </Text>
++                  </Pressable>
++
++                  <Text style={styles.sub}>Скругление: {d.borderRadius ?? (b as any).borderRadius ?? 12}</Text>
++                  <Slider
++                    style={styles.slider}
++                    minimumValue={0}
++                    maximumValue={64}
++                    step={1}
++                    value={d.borderRadius ?? (b as any).borderRadius ?? 12}
++                    onValueChange={(v) => setDraftField(b.id, { borderRadius: v as number })}
++                    onSlidingComplete={(v) => updateBlock(b.id, { borderRadius: v as number })}
++                  />
++                </View>
++              );
++            }
++
++            if (b.type === 'spacer') {
++              return (
++                <View key={b.id} style={styles.card}>
++                  <Text style={styles.label}>Отступ</Text>
++                  <Text style={styles.sub}>Высота: {d.height ?? (b as any).height ?? 16}</Text>
++                  <Slider
++                    style={styles.slider}
++                    minimumValue={0}
++                    maximumValue={64}
++                    step={1}
++                    value={d.height ?? (b as any).height ?? 16}
++                    onValueChange={(v) => setDraftField(b.id, { height: v as number })}
++                    onSlidingComplete={(v) => updateBlock(b.id, { height: v as number })}
++                  />
++                </View>
++              );
++            }
++
++            return (
++              <View key={b.id} style={styles.card}>
++                <Text style={styles.label}>Неизвестный блок: {b.type}</Text>
++              </View>
++            );
++          })}
++        </ScrollView>
++      </LinearGradient>
++
++      {/* Модал выбора иконки */}
++      <Modal visible={iconPicker.open} transparent animationType="fade" onRequestClose={() => setIconPicker({ open: false })}>
++        <View style={styles.modalWrap}>
++          <View style={styles.modalBody}>
++            <Text style={styles.modalTitle}>Выберите иконку</Text>
++            <View style={styles.iconGrid}>
++              {candidateIcons.map((name) => (
++                <Pressable key={name} style={styles.iconCell} onPress={() => commitIcon(name)}>
++                  <MaterialCommunityIcons name={name as any} size={24} />
++                  <Text style={{ marginTop: 6, fontSize: 12 }}>{name}</Text>
++                </Pressable>
++              ))}
++            </View>
++            <Pressable style={[styles.primaryBtn, { alignSelf: 'flex-end', marginTop: 8 }]} onPress={() => setIconPicker({ open: false })}>
++              <Text>Отмена</Text>
++            </Pressable>
++          </View>
++        </View>
++      </Modal>
++    </KeyboardAvoidingView>
++  );
++}
++
++const styles = StyleSheet.create({
++  card: {
++    backgroundColor: 'rgba(255,255,255,0.06)',
++    borderRadius: 16,
++    padding: 14,
++    marginBottom: 12,
++    borderWidth: 1,
++    borderColor: 'rgba(255,255,255,0.08)',
++  },
++  label: { color: 'white', fontSize: 16, marginBottom: 8, fontWeight: '600' },
++  sub: { color: '#cbd5e1', fontSize: 12, marginTop: 6 },
++  input: {
++    backgroundColor: 'rgba(255,255,255,0.08)',
++    borderRadius: 12,
++    paddingHorizontal: 12,
++    paddingVertical: Platform.select({ ios: 12, android: 8 }),
++    color: 'white',
++  },
++  slider: { width: '100%', height: 36, marginTop: 4 },
++  row: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
++  primaryBtn: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    backgroundColor: 'rgba(255,255,255,0.12)',
++    paddingHorizontal: 12,
++    paddingVertical: 10,
++    borderRadius: 12,
++  },
++  iconBtn: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    paddingHorizontal: 10,
++    paddingVertical: 8,
++    borderRadius: 12,
++    backgroundColor: 'rgba(255,255,255,0.1)',
++  },
++  modalWrap: {
++    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
++    alignItems: 'center', justifyContent: 'center',
++    padding: 16,
++  },
++  modalBody: {
++    backgroundColor: '#0b1220',
++    borderRadius: 16,
++    padding: 16,
++    width: '100%',
++    maxWidth: 420,
++    borderWidth: 1,
++    borderColor: 'rgba(255,255,255,0.08)',
++  },
++  modalTitle: { color: 'white', fontSize: 16, fontWeight: '700', marginBottom: 12 },
++  iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
++  iconCell: {
++    width: '25%', alignItems: 'center', marginBottom: 12, paddingVertical: 8,
++    borderRadius: 10,
++  },
++});
