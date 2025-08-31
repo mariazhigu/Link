@@ -30,18 +30,11 @@ type ProjectsContextValue = {
   setCurrentProjectId: (id: string | null) => void;
   setProject: (projectId: string, patch: Partial<Project>) => void;
 
-  /** Обновить один блок текущего проекта */
   updateBlock: (blockId: string, patch: Partial<Block>) => void;
 
-  /** Добавить проект (можно передать «неполный», он нормализуется) */
   addProject: (p: Project | Partial<Project>) => void;
-
-  /** Удобная обёртка: создать и сразу выбрать новый проект */
   addNewProject: (name?: string) => string;
-
-  /** ALIAS для обратной совместимости с твоим кодом */
-  createProject: (name?: string) => string;
-
+  createProject: (name?: string) => string; // alias
   removeProject: (projectId: string) => void;
 };
 
@@ -111,7 +104,9 @@ function normalizeProject(input: Project | Partial<Project>): Project {
   const name = input.name ?? 'Новый проект';
   const blocksArr = Array.isArray(input.blocks) ? input.blocks : [];
   const blocks = blocksArr.map(normalizeBlock);
-  const theme = input.theme ?? { bg: ['#0f172a', '#111827'] };
+  const theme = input.theme && Array.isArray(input.theme.bg) && input.theme.bg.length > 0
+    ? input.theme
+    : { bg: ['#0f172a', '#111827'] };
   return { id, name, blocks, theme };
 }
 
@@ -128,7 +123,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 
-  /** Загрузка сохранённого */
+  /** Загрузка + МИГРАЦИЯ старых данных */
   useEffect(() => {
     (async () => {
       try {
@@ -136,8 +131,14 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STORAGE_KEY),
           AsyncStorage.getItem(STORAGE_CURR),
         ]);
-        if (rawProjects) setProjects(JSON.parse(rawProjects));
-        if (rawCurr) setCurrentProjectId(JSON.parse(rawCurr));
+        const parsed = rawProjects ? JSON.parse(rawProjects) : [];
+        const normalized: Project[] = (Array.isArray(parsed) ? parsed : []).map(normalizeProject);
+        setProjects(normalized);
+
+        const savedId: string | null = rawCurr ? JSON.parse(rawCurr) : null;
+        // если сохранённый id отсутствует в списке — сбросить
+        const validId = normalized.some(p => p.id === savedId) ? savedId : (normalized[0]?.id ?? null);
+        setCurrentProjectId(validId);
       } catch (e) {
         console.warn('Projects load error', e);
       }
@@ -152,7 +153,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
   /** Мутаторы */
   const setProject = useCallback((projectId: string, patch: Partial<Project>) => {
-    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...patch } : p)));
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...patch }) : p)));
   }, []);
 
   const updateBlock = useCallback(
@@ -160,8 +161,8 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       setProjects((prev) =>
         prev.map((p) => {
           if (p.id !== currentProjectId) return p;
-          const blocks = (p.blocks ?? []).map((b) => (b.id === blockId ? { ...b, ...patch } : b));
-          return { ...p, blocks };
+          const blocks = (p.blocks ?? []).map((b) => (b.id === blockId ? normalizeBlock({ ...b, ...patch }) : b));
+          return normalizeProject({ ...p, blocks });
         })
       );
     },
@@ -174,7 +175,6 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     setCurrentProjectId(proj.id);
   }, []);
 
-  /** Создать и выбрать новый проект */
   const addNewProject = useCallback((name?: string) => {
     const newProj = normalizeProject({
       name: name || 'Новый проект',
@@ -189,7 +189,6 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     return newProj.id;
   }, []);
 
-  /** Alias для обратной совместимости с твоим кодом */
   const createProject = useCallback((name?: string) => addNewProject(name), [addNewProject]);
 
   const removeProject = useCallback((projectId: string) => {
@@ -223,7 +222,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       updateBlock,
       addProject,
       addNewProject,
-      createProject,   // <-- добавили сюда
+      createProject,
       removeProject,
     }),
     [projects, currentProject, updateBlock, setProject, addProject, addNewProject, createProject, removeProject]
