@@ -8,12 +8,12 @@ module.exports = function (api) {
         {
           extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
           alias: {
-            // Любой импорт 'expo-linear-gradient' пойдёт в нашу безопасную обёртку
+            // Любой импорт 'expo-linear-gradient' теперь идёт в нашу безопасную заглушку
             'expo-linear-gradient': './lib/expo-linear-gradient-safe',
           },
         },
       ],
-      'react-native-reanimated/plugin', // можно оставить
+      'react-native-reanimated/plugin',
     ],
   };
 };
