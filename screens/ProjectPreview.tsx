@@ -1,103 +1,148 @@
-import React, { useMemo } from 'react';
-import { View, Text, Image, Pressable, ScrollView, StyleSheet, Linking } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useLayoutEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, Image, Pressable } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useProjects } from '../contexts/ProjectsContext';
+import Constants from 'expo-constants';
 
-function safeGradient(input: any): string[] {
-  return Array.isArray(input) && input.length > 0 && input.every((c) => typeof c === 'string')
-    ? input
-    : ['#0f172a', '#111827'];
+import { useProjects, Block } from '../contexts/ProjectsContext';
+import { getPalette } from '../theme';
+import QRSheet from '../components/QRSheet';
+
+function getBaseUrl(): string {
+  // Можно задать в app.json -> "extra": { "EXPO_PUBLIC_BASE_URL": "https://your-domain.com" }
+  // Фоллбэк на наш плейсхолдер
+  // @ts-ignore
+  return (Constants.expoConfig?.extra?.EXPO_PUBLIC_BASE_URL as string) || 'https://linkpro.app';
 }
 
 export default function ProjectPreview() {
   const { currentProject } = useProjects();
-  const p = currentProject;
-  const bg = useMemo(() => safeGradient(p?.theme?.bg), [p?.theme?.bg]);
+  const pal = getPalette(currentProject?.themeKey ?? 'latte');
 
-  if (!p) {
+  const [qr, setQr] = useState<{ open: boolean; value: string; title?: string }>({ open: false, value: '' });
+
+  const pageUrl = useMemo(() => {
+    if (!currentProject) return '';
+    return `${getBaseUrl()}/p/${encodeURIComponent(currentProject.id)}`;
+  }, [currentProject]);
+
+  useLayoutEffect(() => {
+    // Кнопка QR в заголовке — для QR всей страницы (с рефметкой)
+    if (!currentProject) return;
+    setTimeout(() => {
+      // @ts-ignore
+      navigation?.setOptions?.({
+        headerRight: () => (
+          <Pressable
+            onPress={() => setQr({ open: true, value: `${pageUrl}?ref=qr`, title: 'QR — страница' })}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: pal.card, borderWidth: 1, borderColor: pal.border }}
+          >
+            <MaterialCommunityIcons name="qrcode" size={18} color={pal.text} />
+          </Pressable>
+        ),
+      });
+    }, 0);
+  }, [pageUrl, pal, currentProject]);
+
+  if (!currentProject) {
     return (
-      <View style={[styles.center, { padding: 24 }]}>
-        <Text style={{ color: '#cbd5e1' }}>Проект не выбран</Text>
+      <View style={{ flex: 1, backgroundColor: pal.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: pal.text }}>Проект не выбран</Text>
       </View>
     );
   }
 
+  const blocks = currentProject.blocks ?? [];
+
+  const openButtonQR = (b: Block) => {
+    // Трекинговая ссылка на страницу проекта с меткой блока (чтобы считать сканы)
+    const url = `${pageUrl}?ref=qr_btn_${encodeURIComponent(b.id)}`;
+    setQr({ open: true, value: url, title: 'QR — кнопка' });
+  };
+
   return (
-    <LinearGradient colors={bg} style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: pal.bg }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
-        {p.blocks?.map((b) => {
-          switch (b.type) {
-            case 'text':
-              return (
-                <Text
-                  key={b.id}
-                  style={{
-                    color: 'white',
-                    fontSize: (b as any).fontSize ?? 16,
-                    textAlign: (b as any).align ?? 'left',
-                    marginBottom: 12,
-                  }}
-                >
-                  {(b as any).text ?? ''}
-                </Text>
-              );
-            case 'button':
-              return (
-                <Pressable
-                  key={b.id}
-                  onPress={() => (b as any).url && Linking.openURL((b as any).url)}
-                  style={({ pressed }) => [
-                    styles.button,
-                    { borderRadius: (b as any).radius ?? 12, opacity: pressed ? 0.85 : 1 },
-                  ]}
-                >
-                  {(b as any).iconName ? (
-                    <MaterialCommunityIcons name={(b as any).iconName as any} size={18} style={{ marginRight: 8 }} />
-                  ) : null}
-                  <Text style={styles.buttonText}>{(b as any).title ?? 'Button'}</Text>
-                </Pressable>
-              );
-            case 'image':
-              return (
-                <Image
-                  key={b.id}
-                  source={(b as any).uri ? { uri: (b as any).uri } : undefined}
-                  style={{
-                    width: '100%',
-                    aspectRatio: 1.8,
-                    backgroundColor: 'rgba(255,255,255,0.08)',
-                    borderRadius: (b as any).borderRadius ?? 12,
-                    marginBottom: 12,
-                  }}
-                  resizeMode="cover"
-                />
-              );
-            case 'spacer':
-              return <View key={b.id} style={{ height: (b as any).height ?? 16 }} />;
-            default:
-              return (
-                <Text key={b.id} style={{ color: '#94a3b8', marginBottom: 8 }}>
-                  Неизвестный блок
-                </Text>
-              );
+        {/* Заголовок */}
+        <View style={{ backgroundColor: pal.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: pal.border, marginBottom: 12 }}>
+          <Text style={{ color: pal.text, fontSize: 18, fontWeight: '800' }}>
+            {currentProject.name || 'Без названия'}
+          </Text>
+          <Text style={{ color: pal.text, opacity: 0.6, marginTop: 2, fontSize: 12 }}>{pageUrl}</Text>
+        </View>
+
+        {blocks.map((b) => {
+          if (b.type === 'text') {
+            const fontSize = (b as any).fontSize ?? 16;
+            return (
+              <View key={b.id} style={{ padding: 0, backgroundColor: 'transparent' }}>
+                <Text style={{ color: pal.text, fontSize, marginBottom: 12 }}>{(b as any).text || ''}</Text>
+              </View>
+            );
           }
+
+          if (b.type === 'button') {
+            const radius = (b as any).radius ?? 12;
+            return (
+              <View key={b.id} style={{ marginBottom: 12 }}>
+                <Pressable
+                  style={{
+                    backgroundColor: pal.accent,
+                    paddingVertical: 14, paddingHorizontal: 16,
+                    borderRadius: radius, alignItems: 'center', justifyContent: 'center',
+                  }}
+                  onPress={() => { /* здесь можно открыть внешнюю ссылку через WebBrowser */ }}
+                >
+                  <Text style={{ color: pal.accentFg, fontWeight: '700', fontSize: 16 }}>
+                    {(b as any).title || 'Кнопка'}
+                  </Text>
+                </Pressable>
+
+                <View style={{ alignItems: 'flex-end', marginTop: 6 }}>
+                  <Pressable
+                    onPress={() => openButtonQR(b)}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      paddingHorizontal: 10, paddingVertical: 6,
+                      borderRadius: 10, backgroundColor: pal.card,
+                      borderWidth: 1, borderColor: pal.border,
+                    }}
+                  >
+                    <MaterialCommunityIcons name="qrcode" size={16} color={pal.text} />
+                    <Text style={{ marginLeft: 6, color: pal.text }}>QR для кнопки</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          }
+
+          if (b.type === 'image') {
+            const uri = (b as any).uri;
+            const borderRadius = (b as any).borderRadius ?? 12;
+            if (!uri) return null;
+            return (
+              <View key={b.id} style={{ backgroundColor: pal.card, borderRadius, padding: 0, borderWidth: 1, borderColor: pal.border, overflow: 'hidden', marginBottom: 12 }}>
+                <Image source={{ uri }} style={{ width: '100%', height: 200 }} resizeMode="cover" />
+              </View>
+            );
+          }
+
+          if (b.type === 'spacer') {
+            const height = (b as any).height ?? 16;
+            return <View key={b.id} style={{ height }} />;
+          }
+
+          return null;
         })}
       </ScrollView>
-    </LinearGradient>
+
+      {/* Общая модалка QR */}
+      <QRSheet
+        visible={qr.open}
+        onClose={() => setQr({ open: false, value: '' })}
+        value={qr.value}
+        title={qr.title}
+        palette={pal}
+      />
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  button: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  buttonText: { color: 'white', fontWeight: '600' },
-});

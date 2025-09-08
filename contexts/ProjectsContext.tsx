@@ -12,7 +12,7 @@ export type Project = {
   id: string;
   name: string;
   blocks: Block[];
-  themeKey?: string;       // 'latte' | 'sapphire' | 'violet'
+  themeKey?: string;
   updatedAt: number;
 };
 
@@ -23,16 +23,17 @@ type Ctx = {
   setCurrentProjectId: (id: string | null) => void;
 
   addNewProject: (name?: string) => string;
-  createProject: (name?: string) => string; // alias
+  createProject: (name?: string) => string;
 
   removeProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
-  updateProject: (patch: Partial<Project>) => void; // применяет к currentProject
+  updateProject: (patch: Partial<Project>) => void;
 
   addBlock: (type: Block['type']) => void;
   removeBlock: (id: string) => void;
   moveBlock: (id: string, delta: number) => void;
   updateBlock: (id: string, patch: Partial<Block>) => void;
+  duplicateBlock: (id: string) => void; // NEW
 };
 
 const CtxRef = createContext<Ctx | undefined>(undefined);
@@ -54,7 +55,6 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const loadedRef = useRef(false);
 
-  // загрузка
   useEffect(() => {
     (async () => {
       try {
@@ -74,7 +74,6 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // сохранение
   useEffect(() => {
     if (!loadedRef.current) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(projects)).catch(() => {});
@@ -91,21 +90,14 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     [projects, currentProjectId]
   );
 
-  // --- project ops ---
+  // Projects
   const addNewProject = useCallback((name = 'Новый проект') => {
     const id = uid('prj');
-    const next: Project = {
-      id,
-      name,
-      blocks: [],
-      themeKey: 'latte',
-      updatedAt: Date.now(),
-    };
+    const next: Project = { id, name, blocks: [], themeKey: 'latte', updatedAt: Date.now() };
     setProjects(prev => [next, ...prev]);
     setCurrentProjectId(id);
     return id;
   }, []);
-
   const createProject = addNewProject;
 
   const removeProject = useCallback((id: string) => {
@@ -114,20 +106,16 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const renameProject = useCallback((id: string, name: string) => {
-    setProjects(prev =>
-      prev.map(p => (p.id === id ? { ...p, name, updatedAt: Date.now() } : p))
-    );
+    setProjects(prev => prev.map(p => (p.id === id ? { ...p, name, updatedAt: Date.now() } : p)));
   }, []);
 
   const updateProject = useCallback((patch: Partial<Project>) => {
     setProjects(prev =>
-      prev.map(p =>
-        p.id === currentProjectId ? { ...p, ...patch, updatedAt: Date.now() } : p
-      )
+      prev.map(p => (p.id === currentProjectId ? { ...p, ...patch, updatedAt: Date.now() } : p))
     );
   }, [currentProjectId]);
 
-  // --- blocks ops ---
+  // Blocks
   const addBlock = useCallback((type: Block['type']) => {
     if (!currentProjectId) return;
     const newBlock: Block = (() => {
@@ -178,23 +166,26 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     );
   }, [currentProjectId]);
 
-  const value = useMemo<Ctx>(() => ({
-    projects,
-    currentProjectId,
-    currentProject,
-    setCurrentProjectId,
+  const duplicateBlock = useCallback((id: string) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const arr = [...p.blocks];
+        const idx = arr.findIndex(b => b.id === id);
+        if (idx < 0) return p;
+        const copy = { ...arr[idx], id: uid('blk') } as Block;
+        arr.splice(idx + 1, 0, copy);
+        return { ...p, blocks: arr, updatedAt: Date.now() };
+      })
+    );
+  }, [currentProjectId]);
 
-    addNewProject,
-    createProject,
-    removeProject,
-    renameProject,
-    updateProject,
-
-    addBlock,
-    removeBlock,
-    moveBlock,
-    updateBlock,
-  }), [projects, currentProjectId, currentProject, addNewProject, removeProject, renameProject, updateProject, addBlock, removeBlock, moveBlock, updateBlock]);
+  const value: Ctx = {
+    projects, currentProjectId, currentProject, setCurrentProjectId,
+    addNewProject, createProject, removeProject, renameProject, updateProject,
+    addBlock, removeBlock, moveBlock, updateBlock, duplicateBlock,
+  };
 
   return <CtxRef.Provider value={value}>{children}</CtxRef.Provider>;
 }
