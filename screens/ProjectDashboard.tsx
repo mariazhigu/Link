@@ -1,49 +1,64 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-  Modal,
-  StyleSheet,
-  Alert,
-} from 'react-native';
+import React, { useCallback, useMemo, useState, useLayoutEffect } from 'react';
+import { View, Text, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform, Modal, StyleSheet, Alert } from 'react-native';
 import Slider from '@react-native-community/slider';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-
+import { useNavigation } from '@react-navigation/native';
 import { useProjects, Block } from '../contexts/ProjectsContext';
+import { palette } from '../theme';
 
 type DraftMap = Record<string, Partial<Block>>;
 
 export default function ProjectDashboard() {
-  const { currentProject, updateBlock } = useProjects();
+  const navigation = useNavigation<any>();
+  const projectsApi: any = useProjects();
+  const { currentProject, updateBlock, addNewProject, setCurrentProjectId } = projectsApi;
   const blocks: Block[] = currentProject?.blocks ?? [];
 
-  // локальный draft для плавных слайдеров/инпутов
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable onPress={() => navigation.navigate('Preview')} style={styles.headerBtn}>
+          <MaterialCommunityIcons name="eye-outline" size={18} color={palette.text} />
+          <Text style={styles.headerBtnText}>Превью</Text>
+        </Pressable>
+      ),
+    });
+  }, [navigation]);
+
+  if (!currentProject) {
+    return (
+      <View style={{ flex: 1, backgroundColor: palette.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: palette.textMuted, textAlign: 'center', marginBottom: 12 }}>
+          Проект не выбран. Создайте новый или выберите из списка.
+        </Text>
+        <Pressable onPress={() => navigation.navigate('Projects')} style={[styles.primaryBtn, { marginBottom: 10 }]}>
+          <Text style={{ color: palette.accentFg }}>К проектам</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { const id = addNewProject('Новый проект'); setCurrentProjectId(id); }}
+          style={styles.primaryBtn}
+        >
+          <Text style={{ color: palette.accentFg }}>Создать проект</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   const [draft, setDraft] = useState<DraftMap>({});
   const getDraft = useCallback((b: Block) => ({ ...b, ...(draft[b.id] ?? {}) }), [draft]);
   const setDraftField = useCallback((id: string, patch: Partial<Block>) => {
     setDraft(prev => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...patch } }));
   }, []);
 
-  // простой селектор иконок
   const [iconPicker, setIconPicker] = useState<{ open: boolean; blockId?: string }>({ open: false });
-  const candidateIcons = useMemo(
-    () => ['link', 'flash', 'star', 'heart', 'share', 'send', 'email', 'phone', 'web', 'qrcode'],
-    []
-  );
+  const candidateIcons = useMemo(() => ['link', 'flash', 'star', 'heart', 'share', 'send', 'email', 'phone', 'web', 'qrcode'], []);
   const commitIcon = useCallback((iconName: string) => {
     if (!iconPicker.blockId) return;
     updateBlock(iconPicker.blockId, { iconName });
     setIconPicker({ open: false });
   }, [iconPicker.blockId, updateBlock]);
 
-  // выбор изображения
   const pickImage = useCallback(async (blockId: string) => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -63,43 +78,76 @@ export default function ProjectDashboard() {
     updateBlock(blockId, { uri: asset.uri });
   }, [updateBlock]);
 
+  const addBlock = useCallback((type: string) => {
+    if (projectsApi?.addBlock) projectsApi.addBlock(type);
+    else Alert.alert('Добавление блока', 'Метод addBlock не реализован в контексте.');
+  }, [projectsApi]);
+
+  const removeBlock = useCallback((id: string) => {
+    if (projectsApi?.removeBlock) projectsApi.removeBlock(id);
+    else Alert.alert('Удаление блока', 'Метод removeBlock не реализован.');
+  }, [projectsApi]);
+
+  const moveUp = useCallback((id: string) => projectsApi?.moveBlock?.(id, -1), [projectsApi]);
+  const moveDown = useCallback((id: string) => projectsApi?.moveBlock?.(id, +1), [projectsApi]);
+
+  const [addOpen, setAddOpen] = useState(false);
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
-    >
-      <LinearGradient
-        colors={['#0f172a', '#111827']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="always">
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: palette.bg }} behavior={Platform.select({ ios: 'padding', android: undefined })}>
+      <View style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 96 }} keyboardShouldPersistTaps="always">
+          <View style={styles.projectHead}>
+            <Text style={styles.projectTitle} numberOfLines={2}>{currentProject.name || 'Без названия'}</Text>
+            <View style={{ flexDirection: 'row' }}>
+              <Pressable style={styles.badgeAccent} onPress={() => setAddOpen(true)}>
+                <MaterialCommunityIcons name="plus" size={14} color={palette.accentFg} />
+                <Text style={styles.badgeAccentText}>Блок</Text>
+              </Pressable>
+              <View style={{ width: 6 }} />
+              <Pressable style={styles.badge} onPress={() => navigation.navigate('Preview')}>
+                <MaterialCommunityIcons name="eye-outline" size={14} color={palette.text} />
+                <Text style={styles.badgeText}>Превью</Text>
+              </Pressable>
+            </View>
+          </View>
+
           {blocks.map((b) => {
             const d = getDraft(b);
 
             if (b.type === 'text') {
               return (
                 <View key={b.id} style={styles.card}>
-                  <Text style={styles.label}>Текст</Text>
+                  <View style={styles.cardHead}>
+                    <View style={styles.typePill}><Text style={styles.typePillText}>Текст</Text></View>
+                    <View style={styles.actionsRow}>
+                      <Pressable style={styles.iconBtn} onPress={() => moveUp?.(b.id)}><MaterialCommunityIcons name="arrow-up" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => moveDown?.(b.id)}><MaterialCommunityIcons name="arrow-down" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => removeBlock?.(b.id)}><MaterialCommunityIcons name="delete" size={18} color={palette.text} /></Pressable>
+                    </View>
+                  </View>
+
                   <TextInput
                     style={styles.input}
                     placeholder="Введите текст…"
+                    placeholderTextColor={palette.textMuted}
                     defaultValue={(b as any).text}
                     onChangeText={(t) => setDraftField(b.id, { text: t })}
                     onBlur={() => d.text !== (b as any).text && updateBlock(b.id, { text: d.text })}
                   />
 
-                  <Text style={styles.sub}>Размер шрифта: {d.fontSize ?? (b as any).fontSize ?? 16}</Text>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={10}
-                    maximumValue={48}
-                    step={1}
-                    value={d.fontSize ?? (b as any).fontSize ?? 16}
-                    onValueChange={(v) => setDraftField(b.id, { fontSize: v as number })}
-                    onSlidingComplete={(v) => updateBlock(b.id, { fontSize: v as number })}
-                  />
+                  <View style={styles.row}>
+                    <Text style={styles.sub}>Размер: {d.fontSize ?? (b as any).fontSize ?? 16}</Text>
+                    <Slider
+                      style={styles.slider}
+                      minimumValue={10}
+                      maximumValue={48}
+                      step={1}
+                      value={d.fontSize ?? (b as any).fontSize ?? 16}
+                      onValueChange={(v) => setDraftField(b.id, { fontSize: v as number })}
+                      onSlidingComplete={(v) => updateBlock(b.id, { fontSize: v as number })}
+                    />
+                  </View>
                 </View>
               );
             }
@@ -107,11 +155,19 @@ export default function ProjectDashboard() {
             if (b.type === 'button') {
               return (
                 <View key={b.id} style={styles.card}>
-                  <Text style={styles.label}>Кнопка</Text>
+                  <View style={styles.cardHead}>
+                    <View style={styles.typePill}><Text style={styles.typePillText}>Кнопка</Text></View>
+                    <View style={styles.actionsRow}>
+                      <Pressable style={styles.iconBtn} onPress={() => moveUp?.(b.id)}><MaterialCommunityIcons name="arrow-up" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => moveDown?.(b.id)}><MaterialCommunityIcons name="arrow-down" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => removeBlock?.(b.id)}><MaterialCommunityIcons name="delete" size={18} color={palette.text} /></Pressable>
+                    </View>
+                  </View>
 
                   <TextInput
                     style={styles.input}
-                    placeholder="Заголовок"
+                    placeholder="Заголовок кнопки"
+                    placeholderTextColor={palette.textMuted}
                     defaultValue={(b as any).title}
                     onChangeText={(t) => setDraftField(b.id, { title: t })}
                     onBlur={() => d.title !== (b as any).title && updateBlock(b.id, { title: d.title })}
@@ -120,35 +176,35 @@ export default function ProjectDashboard() {
                   <TextInput
                     style={styles.input}
                     placeholder="https://ссылка"
-                    defaultValue={(b as any).url}
+                    placeholderTextColor={palette.textMuted}
                     autoCapitalize="none"
                     keyboardType="url"
+                    defaultValue={(b as any).url}
                     onChangeText={(t) => setDraftField(b.id, { url: t })}
                     onBlur={() => d.url !== (b as any).url && updateBlock(b.id, { url: d.url })}
                   />
 
-                  <View style={styles.row}>
-                    <Pressable
-                      style={styles.iconBtn}
-                      onPress={() => setIconPicker({ open: true, blockId: b.id })}
-                    >
-                      <MaterialCommunityIcons name={(b as any).iconName || 'link'} size={20} />
-                      <Text style={{ marginLeft: 8 }}>
-                        {(b as any).iconName ? (b as any).iconName : 'Выбрать иконку'}
+                  <View style={[styles.row, { marginTop: 8 }]}>
+                    <Pressable style={styles.iconPick} onPress={() => setIconPicker({ open: true, blockId: b.id })}>
+                      <MaterialCommunityIcons name={(b as any).iconName || 'link'} size={18} color={palette.text} />
+                      <Text style={{ color: palette.text, marginLeft: 8 }}>
+                        {(b as any).iconName || 'Иконка'}
                       </Text>
                     </Pressable>
                   </View>
 
-                  <Text style={styles.sub}>Радиус: {d.radius ?? (b as any).radius ?? 12}</Text>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={0}
-                    maximumValue={32}
-                    step={1}
-                    value={d.radius ?? (b as any).radius ?? 12}
-                    onValueChange={(v) => setDraftField(b.id, { radius: v as number })}
-                    onSlidingComplete={(v) => updateBlock(b.id, { radius: v as number })}
-                  />
+                  <View style={styles.row}>
+                    <Text style={styles.sub}>Скругление: {d.radius ?? (b as any).radius ?? 12}</Text>
+                    <Slider
+                      style={styles.slider}
+                      minimumValue={0}
+                      maximumValue={32}
+                      step={1}
+                      value={d.radius ?? (b as any).radius ?? 12}
+                      onValueChange={(v) => setDraftField(b.id, { radius: v as number })}
+                      onSlidingComplete={(v) => updateBlock(b.id, { radius: v as number })}
+                    />
+                  </View>
                 </View>
               );
             }
@@ -156,24 +212,34 @@ export default function ProjectDashboard() {
             if (b.type === 'image') {
               return (
                 <View key={b.id} style={styles.card}>
-                  <Text style={styles.label}>Изображение</Text>
+                  <View style={styles.cardHead}>
+                    <View style={styles.typePill}><Text style={styles.typePillText}>Изображение</Text></View>
+                    <View style={styles.actionsRow}>
+                      <Pressable style={styles.iconBtn} onPress={() => moveUp?.(b.id)}><MaterialCommunityIcons name="arrow-up" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => moveDown?.(b.id)}><MaterialCommunityIcons name="arrow-down" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => removeBlock?.(b.id)}><MaterialCommunityIcons name="delete" size={18} color={palette.text} /></Pressable>
+                    </View>
+                  </View>
+
                   <Pressable onPress={() => pickImage(b.id)} style={styles.primaryBtn}>
-                    <MaterialCommunityIcons name="image" size={18} />
-                    <Text style={{ marginLeft: 8 }}>
+                    <MaterialCommunityIcons name="image" size={18} color={palette.accentFg} />
+                    <Text style={{ marginLeft: 8, color: palette.accentFg, fontWeight: '600' }}>
                       {(b as any).uri ? 'Заменить фото' : 'Выбрать фото'}
                     </Text>
                   </Pressable>
 
-                  <Text style={styles.sub}>Скругление: {d.borderRadius ?? (b as any).borderRadius ?? 12}</Text>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={0}
-                    maximumValue={64}
-                    step={1}
-                    value={d.borderRadius ?? (b as any).borderRadius ?? 12}
-                    onValueChange={(v) => setDraftField(b.id, { borderRadius: v as number })}
-                    onSlidingComplete={(v) => updateBlock(b.id, { borderRadius: v as number })}
-                  />
+                  <View style={styles.row}>
+                    <Text style={styles.sub}>Скругление: {d.borderRadius ?? (b as any).borderRadius ?? 12}</Text>
+                    <Slider
+                      style={styles.slider}
+                      minimumValue={0}
+                      maximumValue={64}
+                      step={1}
+                      value={d.borderRadius ?? (b as any).borderRadius ?? 12}
+                      onValueChange={(v) => setDraftField(b.id, { borderRadius: v as number })}
+                      onSlidingComplete={(v) => updateBlock(b.id, { borderRadius: v as number })}
+                    />
+                  </View>
                 </View>
               );
             }
@@ -181,17 +247,27 @@ export default function ProjectDashboard() {
             if (b.type === 'spacer') {
               return (
                 <View key={b.id} style={styles.card}>
-                  <Text style={styles.label}>Отступ</Text>
-                  <Text style={styles.sub}>Высота: {d.height ?? (b as any).height ?? 16}</Text>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={0}
-                    maximumValue={64}
-                    step={1}
-                    value={d.height ?? (b as any).height ?? 16}
-                    onValueChange={(v) => setDraftField(b.id, { height: v as number })}
-                    onSlidingComplete={(v) => updateBlock(b.id, { height: v as number })}
-                  />
+                  <View style={styles.cardHead}>
+                    <View style={styles.typePill}><Text style={styles.typePillText}>Отступ</Text></View>
+                    <View style={styles.actionsRow}>
+                      <Pressable style={styles.iconBtn} onPress={() => moveUp?.(b.id)}><MaterialCommunityIcons name="arrow-up" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => moveDown?.(b.id)}><MaterialCommunityIcons name="arrow-down" size={18} color={palette.text} /></Pressable>
+                      <Pressable style={styles.iconBtn} onPress={() => removeBlock?.(b.id)}><MaterialCommunityIcons name="delete" size={18} color={palette.text} /></Pressable>
+                    </View>
+                  </View>
+
+                  <View style={styles.row}>
+                    <Text style={styles.sub}>Высота: {d.height ?? (b as any).height ?? 16}</Text>
+                    <Slider
+                      style={styles.slider}
+                      minimumValue={0}
+                      maximumValue={64}
+                      step={1}
+                      value={d.height ?? (b as any).height ?? 16}
+                      onValueChange={(v) => setDraftField(b.id, { height: v as number })}
+                      onSlidingComplete={(v) => updateBlock(b.id, { height: v as number })}
+                    />
+                  </View>
                 </View>
               );
             }
@@ -203,9 +279,13 @@ export default function ProjectDashboard() {
             );
           })}
         </ScrollView>
-      </LinearGradient>
 
-      {/* Модал выбора иконки */}
+        <Pressable style={styles.fab} onPress={() => setAddOpen(true)}>
+          <MaterialCommunityIcons name="plus" size={24} color={palette.accentFg} />
+        </Pressable>
+      </View>
+
+      {/* Иконки */}
       <Modal visible={iconPicker.open} transparent animationType="fade" onRequestClose={() => setIconPicker({ open: false })}>
         <View style={styles.modalWrap}>
           <View style={styles.modalBody}>
@@ -213,13 +293,38 @@ export default function ProjectDashboard() {
             <View style={styles.iconGrid}>
               {candidateIcons.map((name) => (
                 <Pressable key={name} style={styles.iconCell} onPress={() => commitIcon(name)}>
-                  <MaterialCommunityIcons name={name as any} size={24} />
-                  <Text style={{ marginTop: 6, fontSize: 12 }}>{name}</Text>
+                  <MaterialCommunityIcons name={name as any} size={24} color={palette.text} />
+                  <Text style={{ marginTop: 6, fontSize: 12, color: palette.text }}>{name}</Text>
                 </Pressable>
               ))}
             </View>
             <Pressable style={[styles.primaryBtn, { alignSelf: 'flex-end', marginTop: 8 }]} onPress={() => setIconPicker({ open: false })}>
-              <Text>Отмена</Text>
+              <Text style={{ color: palette.accentFg }}>Отмена</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Добавление блока */}
+      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => setAddOpen(false)}>
+        <View style={styles.modalWrap}>
+          <View style={styles.modalBody}>
+            <Text style={styles.modalTitle}>Добавить блок</Text>
+            <View style={styles.addGrid}>
+              {[
+                { type: 'text', label: 'Текст', icon: 'format-text' },
+                { type: 'button', label: 'Кнопка', icon: 'gesture-tap-button' },
+                { type: 'image', label: 'Изображение', icon: 'image' },
+                { type: 'spacer', label: 'Отступ', icon: 'swap-vertical' },
+              ].map((it) => (
+                <Pressable key={it.type} style={styles.addCell} onPress={() => { setAddOpen(false); addBlock(it.type); }}>
+                  <MaterialCommunityIcons name={it.icon as any} size={22} color={palette.text} />
+                  <Text style={{ color: palette.text, marginTop: 6, fontSize: 12 }}>{it.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={[styles.primaryBtn, { alignSelf: 'flex-end', marginTop: 8 }]} onPress={() => setAddOpen(false)}>
+              <Text style={{ color: palette.accentFg }}>Закрыть</Text>
             </Pressable>
           </View>
         </View>
@@ -229,59 +334,72 @@ export default function ProjectDashboard() {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+  headerBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 10, backgroundColor: palette.glass,
   },
-  label: { color: 'white', fontSize: 16, marginBottom: 8, fontWeight: '600' },
-  sub: { color: '#cbd5e1', fontSize: 12, marginTop: 6 },
+  headerBtnText: { color: palette.text, marginLeft: 6, fontWeight: '600' },
+
+  projectHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  projectTitle: { color: palette.text, fontSize: 18, fontWeight: '800', flex: 1, paddingRight: 12 },
+
+  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.glass, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+  badgeText: { color: palette.text, marginLeft: 6, fontWeight: '700', fontSize: 12 },
+
+  badgeAccent: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.accent, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+  badgeAccentText: { color: palette.accentFg, marginLeft: 6, fontWeight: '700', fontSize: 12 },
+
+  card: { backgroundColor: palette.card, borderRadius: 16, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: palette.border },
+  cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  typePill: { backgroundColor: palette.glass, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  typePillText: { color: palette.text, fontSize: 12, fontWeight: '700' },
+
+  actionsRow: { flexDirection: 'row' },
+  iconBtn: { padding: 8, borderRadius: 10, backgroundColor: palette.glass, marginLeft: 6 },
+
+  label: { color: palette.text, fontSize: 16, marginBottom: 8, fontWeight: '600' },
+  sub: { color: palette.textMuted, fontSize: 12, marginRight: 10 },
+
   input: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: palette.glass,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.select({ ios: 12, android: 8 }),
-    color: 'white',
+    color: palette.text,
   },
-  slider: { width: '100%', height: 36, marginTop: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+
+  row: { marginTop: 10 },
+  slider: { width: '100%', height: 36, marginTop: 6 },
+
   primaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: palette.accent,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12,
   },
-  iconBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+
+  iconPick: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderRadius: 12, backgroundColor: palette.glass,
+    alignSelf: 'flex-start',
   },
-  modalWrap: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center', justifyContent: 'center',
-    padding: 16,
-  },
-  modalBody: {
-    backgroundColor: '#0b1220',
-    borderRadius: 16,
-    padding: 16,
-    width: '100%',
-    maxWidth: 420,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  modalTitle: { color: 'white', fontSize: 16, fontWeight: '700', marginBottom: 12 },
+
+  modalWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  modalBody: { backgroundColor: palette.card, borderRadius: 16, padding: 16, width: '100%', maxWidth: 420, borderWidth: 1, borderColor: palette.border },
+  modalTitle: { color: palette.text, fontSize: 16, fontWeight: '800', marginBottom: 12 },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  iconCell: {
-    width: '25%', alignItems: 'center', marginBottom: 12, paddingVertical: 8,
-    borderRadius: 10,
+  iconCell: { width: '25%', alignItems: 'center', marginBottom: 12, paddingVertical: 8, borderRadius: 10 },
+
+  addGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  addCell: { width: '25%', alignItems: 'center', marginBottom: 12, paddingVertical: 8, borderRadius: 10 },
+
+  fab: {
+    position: 'absolute', right: 16, bottom: 16,
+    width: 54, height: 54, borderRadius: 27,
+    backgroundColor: palette.accent,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
 });
