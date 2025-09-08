@@ -4,7 +4,9 @@ import { useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useProjects, Project } from '../contexts/ProjectsContext';
 import { useUser } from '../contexts/UserContext';
-import { palette } from '../theme';
+import { getPalette } from '../theme';
+
+const palette = getPalette('latte');
 
 export default function ProjectsScreen() {
   const navigation = useNavigation<any>();
@@ -144,35 +146,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: Platform.select({ ios: 10, android: 6 }),
   },
   searchInput: { flex: 1, color: palette.text, marginLeft: 6 },
-  toggleBtn: {
-    marginLeft: 8,
-    backgroundColor: palette.accent,
-    padding: 10, borderRadius: 10,
-  },
+  toggleBtn: { marginLeft: 8, backgroundColor: palette.accent, padding: 10, borderRadius: 10 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   metaText: { color: palette.textMuted, fontSize: 12 },
   primaryBtnSmall: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: palette.accent,
-    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: palette.accent, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10,
   },
   primaryBtnSmallText: { color: palette.accentFg, marginLeft: 6, fontWeight: '600' },
   card: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: palette.card,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 14, padding: 12,
     borderWidth: 1, borderColor: palette.border,
   },
   cardGrid: {
-    flex: 1,
-    backgroundColor: palette.card,
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1, borderColor: palette.border,
-    margin: 5,
-    minHeight: 90,
-    justifyContent: 'space-between',
+    flex: 1, backgroundColor: palette.card,
+    borderRadius: 14, padding: 12, borderWidth: 1, borderColor: palette.border,
+    margin: 5, minHeight: 90, justifyContent: 'space-between',
   },
   name: { color: palette.text, fontSize: 16, fontWeight: '700' },
   meta: { color: palette.textMuted, fontSize: 12, marginTop: 4 },
@@ -181,8 +172,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', justifyContent: 'center', padding: 24 },
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: palette.accent,
-    paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: palette.accent, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12,
   },
   primaryBtnText: { color: palette.accentFg, marginLeft: 8, fontWeight: '700' },
   headerBtn: {

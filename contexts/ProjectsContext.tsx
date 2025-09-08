@@ -8,11 +8,14 @@ export type ImageBlock = BlockBase & { type: 'image'; uri?: string; borderRadius
 export type SpacerBlock = BlockBase & { type: 'spacer'; height?: number };
 export type Block = TextBlock | ButtonBlock | ImageBlock | SpacerBlock;
 
+export type Metrics = { clicks?: Record<string, number> };
+
 export type Project = {
   id: string;
   name: string;
   blocks: Block[];
   themeKey?: string;
+  metrics?: Metrics;
   updatedAt: number;
 };
 
@@ -32,8 +35,11 @@ type Ctx = {
   addBlock: (type: Block['type']) => void;
   removeBlock: (id: string) => void;
   moveBlock: (id: string, delta: number) => void;
+  reorderBlocks: (orderIds: string[]) => void; // NEW
   updateBlock: (id: string, patch: Partial<Block>) => void;
-  duplicateBlock: (id: string) => void; // NEW
+
+  duplicateBlock: (id: string) => void;
+  incrementClick: (blockId: string) => void;   // NEW
 };
 
 const CtxRef = createContext<Ctx | undefined>(undefined);
@@ -43,7 +49,7 @@ export const useProjects = () => {
   return v;
 };
 
-const STORAGE_KEY = 'linkpro-projects-v2';
+const STORAGE_KEY = 'linkpro-projects-v3';
 const STORAGE_CURR = 'linkpro-current-project-id';
 
 function uid(prefix = 'id'): string {
@@ -58,12 +64,18 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [raw, rawCurr] = await Promise.all([
+        // миграция с v2
+        const [raw2, raw3, rawCurr] = await Promise.all([
+          AsyncStorage.getItem('linkpro-projects-v2'),
           AsyncStorage.getItem(STORAGE_KEY),
           AsyncStorage.getItem(STORAGE_CURR),
         ]);
-        const list: Project[] = raw ? JSON.parse(raw) : [];
-        setProjects(Array.isArray(list) ? list : []);
+        let list: Project[] = raw3 ? JSON.parse(raw3) : raw2 ? JSON.parse(raw2) : [];
+        list = (Array.isArray(list) ? list : []).map(p => ({
+          ...p,
+          metrics: p.metrics ?? { clicks: {} },
+        }));
+        setProjects(list);
         setCurrentProjectId(rawCurr ?? null);
       } catch {
         setProjects([]);
@@ -93,7 +105,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   // Projects
   const addNewProject = useCallback((name = 'Новый проект') => {
     const id = uid('prj');
-    const next: Project = { id, name, blocks: [], themeKey: 'latte', updatedAt: Date.now() };
+    const next: Project = { id, name, blocks: [], themeKey: 'latte', metrics: { clicks: {} }, updatedAt: Date.now() };
     setProjects(prev => [next, ...prev]);
     setCurrentProjectId(id);
     return id;
@@ -155,6 +167,20 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     );
   }, [currentProjectId]);
 
+  const reorderBlocks = useCallback((orderIds: string[]) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const map = new Map(p.blocks.map(b => [b.id, b]));
+        const reordered: Block[] = orderIds.map(id => map.get(id)!).filter(Boolean);
+        // добавим потерянные (на всякий случай)
+        p.blocks.forEach(b => { if (!orderIds.includes(b.id)) reordered.push(b); });
+        return { ...p, blocks: reordered, updatedAt: Date.now() };
+      })
+    );
+  }, [currentProjectId]);
+
   const updateBlock = useCallback((id: string, patch: Partial<Block>) => {
     if (!currentProjectId) return;
     setProjects(prev =>
@@ -181,10 +207,23 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     );
   }, [currentProjectId]);
 
+  const incrementClick = useCallback((blockId: string) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const clicks = { ...(p.metrics?.clicks ?? {}) };
+        clicks[blockId] = (clicks[blockId] ?? 0) + 1;
+        return { ...p, metrics: { ...(p.metrics ?? {}), clicks }, updatedAt: Date.now() };
+      })
+    );
+  }, [currentProjectId]);
+
   const value: Ctx = {
     projects, currentProjectId, currentProject, setCurrentProjectId,
     addNewProject, createProject, removeProject, renameProject, updateProject,
-    addBlock, removeBlock, moveBlock, updateBlock, duplicateBlock,
+    addBlock, removeBlock, moveBlock, reorderBlocks, updateBlock,
+    duplicateBlock, incrementClick,
   };
 
   return <CtxRef.Provider value={value}>{children}</CtxRef.Provider>;

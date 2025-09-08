@@ -1,10 +1,12 @@
+import 'react-native-gesture-handler'; // ← должен быть самым первым
 import React from 'react';
 import { View, Text } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { UserProvider, useUser } from './contexts/UserContext';
-import { ProjectsProvider, useProjects } from './contexts/ProjectsContext';
+import { ProjectsProvider } from './contexts/ProjectsContext';
 
 import ProjectsScreen from './screens/ProjectsScreen';
 import ProjectDashboard from './screens/ProjectDashboard';
@@ -16,8 +18,7 @@ const Stack = createNativeStackNavigator();
 
 function RootNav() {
   const { loading, user } = useUser();
-  const { currentProject } = useProjects();
-  const pal = getPalette(currentProject?.themeKey ?? 'latte');
+  const pal = getPalette('latte'); // редактор/навигация — всегда Latte
 
   const navTheme = {
     ...DefaultTheme,
@@ -65,10 +66,12 @@ function RootNav() {
 
 export default function App() {
   return (
-    <UserProvider>
-      <ProjectsProvider>
-        <RootNav />
-      </ProjectsProvider>
-    </UserProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <UserProvider>
+        <ProjectsProvider>
+          <RootNav />
+        </ProjectsProvider>
+      </UserProvider>
+    </GestureHandlerRootView>
   );
 }

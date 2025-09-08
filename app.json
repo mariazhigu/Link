@@ -2,7 +2,6 @@
   "expo": {
     "name": "LinkPro",
     "slug": "linkpro",
-
     "ios": {
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Нужно разрешение, чтобы выбрать фото для аватара, обложки и фона.",
@@ -16,11 +15,10 @@
         "WRITE_EXTERNAL_STORAGE"
       ]
     },
-
     "plugins": [
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-web-browser"
     ],
-
     "extra": {
       "EXPO_PUBLIC_SUPABASE_URL": "https://brgyrgeakfamizhkqjov.supabase.co",
       "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyZ3lyZ2Vha2ZhbWl6aGtxam92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0Nzk2NzIsImV4cCI6MjA3MjA1NTY3Mn0.esJc1SqfVUvAOWaZSlyzI0JkuO2oWHH-TE-IW933ZS4"

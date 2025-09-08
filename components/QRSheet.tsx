@@ -15,10 +15,14 @@ type Props = {
   onClose: () => void;
   value: string;           // что кодируем
   title?: string;          // подпись сверху
-  palette: Palette;        // палитра страницы (чтобы подходило визуально)
+  palette: Palette;        // палитра страницы
 };
 
 export default function QRSheet({ visible, onClose, value, title, palette }: Props) {
+  // ❗ Главная защита
+  const codeValue = (value ?? '').toString().trim();
+  if (!visible || !codeValue) return null;
+
   const shotRef = useRef<ViewShot>(null);
 
   const handleSave = async () => {
@@ -32,7 +36,7 @@ export default function QRSheet({ visible, onClose, value, title, palette }: Pro
       }
       await MediaLibrary.saveToLibraryAsync(uri);
       Alert.alert('Сохранено', 'QR сохранён в галерею.');
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось сохранить QR.');
     }
   };
@@ -51,7 +55,7 @@ export default function QRSheet({ visible, onClose, value, title, palette }: Pro
         return;
       }
       await Sharing.shareAsync(uri, { dialogTitle: title || 'QR' });
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось поделиться QR.');
     }
   };
@@ -63,10 +67,10 @@ export default function QRSheet({ visible, onClose, value, title, palette }: Pro
           {!!title && <Text style={[styles.title, { color: palette.text }]}>{title}</Text>}
 
           <ViewShot ref={shotRef} style={[styles.qrWrap, { backgroundColor: palette.bg, borderColor: palette.border }]}>
-            <QRCode value={value} size={220} backgroundColor={palette.bg} color={palette.text} />
+            <QRCode value={codeValue} size={220} backgroundColor={palette.bg} color={palette.text} />
           </ViewShot>
 
-          <Text style={[styles.url, { color: palette.textMuted }]} numberOfLines={2}>{value}</Text>
+          <Text style={[styles.url, { color: palette.textMuted }]} numberOfLines={2}>{codeValue}</Text>
 
           <View style={styles.row}>
             <Pressable onPress={handleSave} style={[styles.btn, { backgroundColor: palette.accent }]}>

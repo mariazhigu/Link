@@ -1,47 +1,58 @@
 import React, { useLayoutEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Image, Pressable } from 'react-native';
+import { View, Text, ScrollView, Image, Pressable, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 
 import { useProjects, Block } from '../contexts/ProjectsContext';
 import { getPalette } from '../theme';
 import QRSheet from '../components/QRSheet';
+import PosterSheet from '../components/PosterSheet';
+import { normalizeUrl, isLikelyUrl } from '../utils/url';
 
 function getBaseUrl(): string {
-  // Можно задать в app.json -> "extra": { "EXPO_PUBLIC_BASE_URL": "https://your-domain.com" }
-  // Фоллбэк на наш плейсхолдер
   // @ts-ignore
   return (Constants.expoConfig?.extra?.EXPO_PUBLIC_BASE_URL as string) || 'https://linkpro.app';
 }
 
 export default function ProjectPreview() {
-  const { currentProject } = useProjects();
+  const navigation = useNavigation<any>();
+  const { currentProject, incrementClick } = useProjects();
   const pal = getPalette(currentProject?.themeKey ?? 'latte');
 
   const [qr, setQr] = useState<{ open: boolean; value: string; title?: string }>({ open: false, value: '' });
+  const [poster, setPoster] = useState(false);
 
   const pageUrl = useMemo(() => {
-    if (!currentProject) return '';
+    if (!currentProject?.id) return '';
     return `${getBaseUrl()}/p/${encodeURIComponent(currentProject.id)}`;
-  }, [currentProject]);
+  }, [currentProject?.id]);
 
   useLayoutEffect(() => {
-    // Кнопка QR в заголовке — для QR всей страницы (с рефметкой)
-    if (!currentProject) return;
-    setTimeout(() => {
-      // @ts-ignore
-      navigation?.setOptions?.({
-        headerRight: () => (
+    if (!pageUrl) {
+      navigation.setOptions({ headerRight: undefined });
+      return;
+    }
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: 'row' }}>
           <Pressable
             onPress={() => setQr({ open: true, value: `${pageUrl}?ref=qr`, title: 'QR — страница' })}
-            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: pal.card, borderWidth: 1, borderColor: pal.border }}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}
           >
             <MaterialCommunityIcons name="qrcode" size={18} color={pal.text} />
           </Pressable>
-        ),
-      });
-    }, 0);
-  }, [pageUrl, pal, currentProject]);
+          <Pressable
+            onPress={() => setPoster(true)}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}
+          >
+            <MaterialCommunityIcons name="image" size={18} color={pal.text} />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [navigation, pageUrl, pal.text]);
 
   if (!currentProject) {
     return (
@@ -52,9 +63,26 @@ export default function ProjectPreview() {
   }
 
   const blocks = currentProject.blocks ?? [];
+  const firstImageUri = (blocks.find(b => b.type === 'image') as any)?.uri as string | undefined;
+
+  const openExternal = async (raw?: string, blockId?: string) => {
+    const value = (raw ?? '').trim();
+    if (!value) return;
+    if (!isLikelyUrl(value)) {
+      Alert.alert('Некорректная ссылка', 'Проверьте URL — кажется, он задан с ошибкой.');
+      return;
+    }
+    try {
+      const url = normalizeUrl(value);
+      if (blockId) incrementClick(blockId);
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      Alert.alert('Ошибка', 'Не удалось открыть ссылку.');
+    }
+  };
 
   const openButtonQR = (b: Block) => {
-    // Трекинговая ссылка на страницу проекта с меткой блока (чтобы считать сканы)
+    if (!pageUrl) return;
     const url = `${pageUrl}?ref=qr_btn_${encodeURIComponent(b.id)}`;
     setQr({ open: true, value: url, title: 'QR — кнопка' });
   };
@@ -62,12 +90,11 @@ export default function ProjectPreview() {
   return (
     <View style={{ flex: 1, backgroundColor: pal.bg }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
-        {/* Заголовок */}
         <View style={{ backgroundColor: pal.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: pal.border, marginBottom: 12 }}>
           <Text style={{ color: pal.text, fontSize: 18, fontWeight: '800' }}>
             {currentProject.name || 'Без названия'}
           </Text>
-          <Text style={{ color: pal.text, opacity: 0.6, marginTop: 2, fontSize: 12 }}>{pageUrl}</Text>
+          {pageUrl ? <Text style={{ color: pal.text, opacity: 0.6, marginTop: 2, fontSize: 12 }}>{pageUrl}</Text> : null}
         </View>
 
         {blocks.map((b) => {
@@ -82,35 +109,28 @@ export default function ProjectPreview() {
 
           if (b.type === 'button') {
             const radius = (b as any).radius ?? 12;
+            const title = (b as any).title || 'Кнопка';
+            const url = (b as any).url || '';
             return (
               <View key={b.id} style={{ marginBottom: 12 }}>
                 <Pressable
-                  style={{
-                    backgroundColor: pal.accent,
-                    paddingVertical: 14, paddingHorizontal: 16,
-                    borderRadius: radius, alignItems: 'center', justifyContent: 'center',
-                  }}
-                  onPress={() => { /* здесь можно открыть внешнюю ссылку через WebBrowser */ }}
+                  style={{ backgroundColor: pal.accent, paddingVertical: 14, paddingHorizontal: 16, borderRadius: radius, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => openExternal(url, b.id)}
                 >
-                  <Text style={{ color: pal.accentFg, fontWeight: '700', fontSize: 16 }}>
-                    {(b as any).title || 'Кнопка'}
-                  </Text>
+                  <Text style={{ color: pal.accentFg, fontWeight: '700', fontSize: 16 }}>{title}</Text>
                 </Pressable>
 
-                <View style={{ alignItems: 'flex-end', marginTop: 6 }}>
-                  <Pressable
-                    onPress={() => openButtonQR(b)}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center',
-                      paddingHorizontal: 10, paddingVertical: 6,
-                      borderRadius: 10, backgroundColor: pal.card,
-                      borderWidth: 1, borderColor: pal.border,
-                    }}
-                  >
-                    <MaterialCommunityIcons name="qrcode" size={16} color={pal.text} />
-                    <Text style={{ marginLeft: 6, color: pal.text }}>QR для кнопки</Text>
-                  </Pressable>
-                </View>
+                {pageUrl ? (
+                  <View style={{ alignItems: 'flex-end', marginTop: 6 }}>
+                    <Pressable
+                      onPress={() => openButtonQR(b)}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: pal.card, borderWidth: 1, borderColor: pal.border }}
+                    >
+                      <MaterialCommunityIcons name="qrcode" size={16} color={pal.text} />
+                      <Text style={{ marginLeft: 6, color: pal.text }}>QR для кнопки</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             );
           }
@@ -135,14 +155,8 @@ export default function ProjectPreview() {
         })}
       </ScrollView>
 
-      {/* Общая модалка QR */}
-      <QRSheet
-        visible={qr.open}
-        onClose={() => setQr({ open: false, value: '' })}
-        value={qr.value}
-        title={qr.title}
-        palette={pal}
-      />
+      <QRSheet visible={qr.open} onClose={() => setQr({ open: false, value: '' })} value={qr.value} title={qr.title} palette={pal} />
+      <PosterSheet visible={poster} onClose={() => setPoster(false)} title={currentProject.name || 'Без названия'} url={pageUrl} palette={pal} coverUri={firstImageUri} />
     </View>
   );
 }

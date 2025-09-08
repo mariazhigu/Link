@@ -1,0 +1,79 @@
+// theme.ts
+export type Palette = {
+  bg: string;          // фон экрана
+  card: string;        // фон карточек
+  border: string;      // тонкая линия/граница
+  glass: string;       // полупрозрачные кнопки/плашки
+  text: string;        // основной текст
+  textMuted: string;   // вторичный текст
+  accent: string;      // акцент (CTA, FAB)
+  accentFg: string;    // текст/иконки на акценте
+  accentGlass: string; // акцентная "стеклянная" плашка
+  success: string;
+  destructive: string;
+};
+
+export const palettes: Record<string, Palette> = {
+  // 💜 Aurora Violet (по умолчанию)
+  violet: {
+    bg: '#0b1220',
+    card: 'rgba(255,255,255,0.06)',
+    border: 'rgba(255,255,255,0.08)',
+    glass: 'rgba(255,255,255,0.10)',
+    text: '#e5e7eb',
+    textMuted: '#94a3b8',
+    accent: '#7c3aed',        // violet-600
+    accentFg: '#ffffff',
+    accentGlass: 'rgba(167,139,250,0.20)', // violet-300 @20%
+    success: '#22c55e',
+    destructive: '#ef4444',
+  },
+
+  // 🌿 Neo Mint
+  mint: {
+    bg: '#0a0f0f',
+    card: 'rgba(255,255,255,0.06)',
+    border: 'rgba(255,255,255,0.08)',
+    glass: 'rgba(255,255,255,0.10)',
+    text: '#e5e7eb',
+    textMuted: '#94a3b8',
+    accent: '#34d399',        // emerald-400
+    accentFg: '#0b1220',
+    accentGlass: 'rgba(52,211,153,0.20)',
+    success: '#22c55e',
+    destructive: '#ef4444',
+  },
+
+  // 🧡 Coral Rose
+  coral: {
+    bg: '#120b0d',
+    card: 'rgba(255,255,255,0.06)',
+    border: 'rgba(255,255,255,0.08)',
+    glass: 'rgba(255,255,255,0.10)',
+    text: '#e5e7eb',
+    textMuted: '#94a3b8',
+    accent: '#fb7185',        // rose-400
+    accentFg: '#0b1220',
+    accentGlass: 'rgba(251,113,133,0.22)',
+    success: '#22c55e',
+    destructive: '#ef4444',
+  },
+
+  // 🔵 Sapphire
+  sapphire: {
+    bg: '#0a0f1a',
+    card: 'rgba(255,255,255,0.06)',
+    border: 'rgba(255,255,255,0.08)',
+    glass: 'rgba(255,255,255,0.10)',
+    text: '#e5e7eb',
+    textMuted: '#94a3b8',
+    accent: '#60a5fa',        // blue-400
+    accentFg: '#0b1220',
+    accentGlass: 'rgba(96,165,250,0.20)',
+    success: '#22c55e',
+    destructive: '#ef4444',
+  },
+};
+
+// 👇 Просто поменяй ключ здесь, чтобы сменить тему на всю апку
+export const palette: Palette = palettes.violet;
