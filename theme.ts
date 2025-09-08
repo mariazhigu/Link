@@ -1,20 +1,20 @@
 // theme.ts
 export type Palette = {
-  bg: string;          // фон экрана
-  card: string;        // фон карточек/модалок
-  border: string;      // тонкая граница
-  glass: string;       // "стекло" для инпутов/икон-кнопок
-  text: string;        // текст основной
-  textMuted: string;   // вторичный текст/плейсхолдеры
-  accent: string;      // акцент (CTA, FAB)
-  accentFg: string;    // текст/иконки на акценте
-  accentGlass: string; // стекло в тон акцента
+  bg: string;
+  card: string;
+  border: string;
+  glass: string;
+  text: string;
+  textMuted: string;
+  accent: string;
+  accentFg: string;
+  accentGlass: string;
   success: string;
   destructive: string;
 };
 
 export const palettes: Record<string, Palette> = {
-  // ☕️ Light Latte (тёплый кремовый, по умолчанию)
+  // ☕️ Light Latte
   latte: {
     bg: '#f6f0e8',
     card: '#ffffff',
@@ -22,14 +22,13 @@ export const palettes: Record<string, Palette> = {
     glass: 'rgba(0,0,0,0.06)',
     text: '#3f3a36',
     textMuted: '#7a6a61',
-    accent: '#b07a5e',        // тёплый карамельный
+    accent: '#b07a5e',
     accentFg: '#ffffff',
     accentGlass: 'rgba(176,122,94,0.16)',
     success: '#22c55e',
     destructive: '#dc2626',
   },
-
-  // 🔵 Sapphire (остаётся для переключения в будущем)
+  // 🔵 Sapphire
   sapphire: {
     bg: '#0a0f1a',
     card: 'rgba(255,255,255,0.06)',
@@ -43,8 +42,7 @@ export const palettes: Record<string, Palette> = {
     success: '#22c55e',
     destructive: '#ef4444',
   },
-
-  // 💜 Violet (тёмная, как раньше)
+  // 💜 Violet
   violet: {
     bg: '#0b1220',
     card: 'rgba(255,255,255,0.06)',
@@ -60,5 +58,7 @@ export const palettes: Record<string, Palette> = {
   },
 };
 
-// 👇 хочешь другую — поменяй ключ на 'sapphire' или 'violet'
-export const palette: Palette = palettes.latte;
+export function getPalette(key?: string): Palette {
+  if (!key) return palettes.latte;
+  return palettes[key] ?? palettes.latte;
+}

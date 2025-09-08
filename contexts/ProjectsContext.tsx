@@ -1,232 +1,200 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-/** ===== Типы ===== */
-export type Block = {
-  id: string;
-  type: 'text' | 'button' | 'image' | 'spacer';
-  [k: string]: any;
-};
+export type BlockBase = { id: string; type: 'text' | 'button' | 'image' | 'spacer' };
+export type TextBlock = BlockBase & { type: 'text'; text?: string; fontSize?: number };
+export type ButtonBlock = BlockBase & { type: 'button'; title?: string; url?: string; iconName?: string; radius?: number };
+export type ImageBlock = BlockBase & { type: 'image'; uri?: string; borderRadius?: number };
+export type SpacerBlock = BlockBase & { type: 'spacer'; height?: number };
+export type Block = TextBlock | ButtonBlock | ImageBlock | SpacerBlock;
 
 export type Project = {
   id: string;
   name: string;
   blocks: Block[];
-  theme?: { bg?: string[] };
+  themeKey?: string;       // 'latte' | 'sapphire' | 'violet'
+  updatedAt: number;
 };
 
-type ProjectsContextValue = {
+type Ctx = {
   projects: Project[];
+  currentProjectId: string | null;
   currentProject: Project | null;
-
   setCurrentProjectId: (id: string | null) => void;
-  setProject: (projectId: string, patch: Partial<Project>) => void;
 
-  updateBlock: (blockId: string, patch: Partial<Block>) => void;
-
-  addProject: (p: Project | Partial<Project>) => void;
   addNewProject: (name?: string) => string;
   createProject: (name?: string) => string; // alias
-  removeProject: (projectId: string) => void;
+
+  removeProject: (id: string) => void;
+  renameProject: (id: string, name: string) => void;
+  updateProject: (patch: Partial<Project>) => void; // применяет к currentProject
+
+  addBlock: (type: Block['type']) => void;
+  removeBlock: (id: string) => void;
+  moveBlock: (id: string, delta: number) => void;
+  updateBlock: (id: string, patch: Partial<Block>) => void;
 };
 
-const STORAGE_KEY = 'linkpro-projects';
+const CtxRef = createContext<Ctx | undefined>(undefined);
+export const useProjects = () => {
+  const v = useContext(CtxRef);
+  if (!v) throw new Error('useProjects must be used within ProjectsProvider');
+  return v;
+};
+
+const STORAGE_KEY = 'linkpro-projects-v2';
 const STORAGE_CURR = 'linkpro-current-project-id';
 
-/** ===== Утилиты ===== */
-function useDebounced<T extends (...a: any[]) => void>(fn: T, delay = 500) {
-  const t = useRef<ReturnType<typeof setTimeout> | null>(null);
-  return useCallback((...args: Parameters<T>) => {
-    if (t.current) clearTimeout(t.current);
-    t.current = setTimeout(() => fn(...args), delay);
-  }, [fn, delay]);
-}
-
-function genId(prefix = 'p') {
+function uid(prefix = 'id'): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function normalizeBlock(input: any): Block {
-  const type: Block['type'] = input?.type ?? 'text';
-  const id = input?.id ?? genId('b');
-  switch (type) {
-    case 'text':
-      return {
-        id,
-        type,
-        text: input?.text ?? '',
-        fontSize: Number.isFinite(input?.fontSize) ? input.fontSize : 16,
-        align: input?.align ?? 'left',
-      };
-    case 'button':
-      return {
-        id,
-        type,
-        title: input?.title ?? 'Button',
-        url: input?.url ?? '',
-        radius: Number.isFinite(input?.radius) ? input.radius : 12,
-        iconName: input?.iconName ?? undefined,
-      };
-    case 'image':
-      return {
-        id,
-        type,
-        uri: input?.uri ?? '',
-        borderRadius: Number.isFinite(input?.borderRadius) ? input.borderRadius : 12,
-      };
-    case 'spacer':
-      return {
-        id,
-        type,
-        height: Number.isFinite(input?.height) ? input.height : 16,
-      };
-    default:
-      return {
-        id,
-        type: 'text',
-        text: String(input?.text ?? ''),
-        fontSize: 16,
-        align: 'left',
-      };
-  }
-}
-
-function normalizeProject(input: Project | Partial<Project>): Project {
-  const id = input.id ?? genId('proj');
-  const name = input.name ?? 'Новый проект';
-  const blocksArr = Array.isArray(input.blocks) ? input.blocks : [];
-  const blocks = blocksArr.map(normalizeBlock);
-  const theme = input.theme && Array.isArray(input.theme.bg) && input.theme.bg.length > 0
-    ? input.theme
-    : { bg: ['#0f172a', '#111827'] };
-  return { id, name, blocks, theme };
-}
-
-/** ===== Контекст ===== */
-export const ProjectsContext = createContext<ProjectsContextValue | undefined>(undefined);
-
-export function useProjects() {
-  const ctx = useContext(ProjectsContext);
-  if (!ctx) throw new Error('useProjects must be used within ProjectsProvider');
-  return ctx;
 }
 
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const loadedRef = useRef(false);
 
-  /** Загрузка + МИГРАЦИЯ старых данных */
+  // загрузка
   useEffect(() => {
     (async () => {
       try {
-        const [rawProjects, rawCurr] = await Promise.all([
+        const [raw, rawCurr] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEY),
           AsyncStorage.getItem(STORAGE_CURR),
         ]);
-        const parsed = rawProjects ? JSON.parse(rawProjects) : [];
-        const normalized: Project[] = (Array.isArray(parsed) ? parsed : []).map(normalizeProject);
-        setProjects(normalized);
-
-        const savedId: string | null = rawCurr ? JSON.parse(rawCurr) : null;
-        // если сохранённый id отсутствует в списке — сбросить
-        const validId = normalized.some(p => p.id === savedId) ? savedId : (normalized[0]?.id ?? null);
-        setCurrentProjectId(validId);
-      } catch (e) {
-        console.warn('Projects load error', e);
+        const list: Project[] = raw ? JSON.parse(raw) : [];
+        setProjects(Array.isArray(list) ? list : []);
+        setCurrentProjectId(rawCurr ?? null);
+      } catch {
+        setProjects([]);
+        setCurrentProjectId(null);
+      } finally {
+        loadedRef.current = true;
       }
     })();
   }, []);
 
-  /** Текущий проект */
+  // сохранение
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(projects)).catch(() => {});
+  }, [projects]);
+
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    if (currentProjectId) AsyncStorage.setItem(STORAGE_CURR, currentProjectId).catch(() => {});
+    else AsyncStorage.removeItem(STORAGE_CURR).catch(() => {});
+  }, [currentProjectId]);
+
   const currentProject = useMemo(
-    () => projects.find((p) => p.id === currentProjectId) ?? null,
+    () => projects.find(p => p.id === currentProjectId) ?? null,
     [projects, currentProjectId]
   );
 
-  /** Мутаторы */
-  const setProject = useCallback((projectId: string, patch: Partial<Project>) => {
-    setProjects((prev) => prev.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...patch }) : p)));
+  // --- project ops ---
+  const addNewProject = useCallback((name = 'Новый проект') => {
+    const id = uid('prj');
+    const next: Project = {
+      id,
+      name,
+      blocks: [],
+      themeKey: 'latte',
+      updatedAt: Date.now(),
+    };
+    setProjects(prev => [next, ...prev]);
+    setCurrentProjectId(id);
+    return id;
   }, []);
 
-  const updateBlock = useCallback(
-    (blockId: string, patch: Partial<Block>) => {
-      setProjects((prev) =>
-        prev.map((p) => {
-          if (p.id !== currentProjectId) return p;
-          const blocks = (p.blocks ?? []).map((b) => (b.id === blockId ? normalizeBlock({ ...b, ...patch }) : b));
-          return normalizeProject({ ...p, blocks });
-        })
-      );
-    },
-    [currentProjectId]
-  );
+  const createProject = addNewProject;
 
-  const addProject = useCallback((input: Project | Partial<Project>) => {
-    const proj = normalizeProject(input);
-    setProjects((prev) => [proj, ...prev]);
-    setCurrentProjectId(proj.id);
+  const removeProject = useCallback((id: string) => {
+    setProjects(prev => prev.filter(p => p.id !== id));
+    setCurrentProjectId(prev => (prev === id ? null : prev));
   }, []);
 
-  const addNewProject = useCallback((name?: string) => {
-    const newProj = normalizeProject({
-      name: name || 'Новый проект',
-      blocks: [
-        { type: 'text', text: 'Привет! 👋', fontSize: 20, align: 'center' },
-        { type: 'spacer', height: 12 },
-        { type: 'button', title: 'Открыть ссылку', url: 'https://example.com', radius: 12, iconName: 'link' },
-      ] as any[],
-    });
-    setProjects((prev) => [newProj, ...prev]);
-    setCurrentProjectId(newProj.id);
-    return newProj.id;
+  const renameProject = useCallback((id: string, name: string) => {
+    setProjects(prev =>
+      prev.map(p => (p.id === id ? { ...p, name, updatedAt: Date.now() } : p))
+    );
   }, []);
 
-  const createProject = useCallback((name?: string) => addNewProject(name), [addNewProject]);
+  const updateProject = useCallback((patch: Partial<Project>) => {
+    setProjects(prev =>
+      prev.map(p =>
+        p.id === currentProjectId ? { ...p, ...patch, updatedAt: Date.now() } : p
+      )
+    );
+  }, [currentProjectId]);
 
-  const removeProject = useCallback((projectId: string) => {
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    setCurrentProjectId((curr) => (curr === projectId ? null : curr));
-  }, []);
+  // --- blocks ops ---
+  const addBlock = useCallback((type: Block['type']) => {
+    if (!currentProjectId) return;
+    const newBlock: Block = (() => {
+      switch (type) {
+        case 'text': return { id: uid('blk'), type: 'text', text: '', fontSize: 16 };
+        case 'button': return { id: uid('blk'), type: 'button', title: 'Кнопка', url: '', iconName: 'link', radius: 12 };
+        case 'image': return { id: uid('blk'), type: 'image', uri: '', borderRadius: 12 };
+        case 'spacer': return { id: uid('blk'), type: 'spacer', height: 16 };
+      }
+    })();
+    setProjects(prev =>
+      prev.map(p => p.id === currentProjectId ? { ...p, blocks: [...p.blocks, newBlock], updatedAt: Date.now() } : p)
+    );
+  }, [currentProjectId]);
 
-  /** Дебаунс-сохранение */
-  const persist = useCallback(async (data: { projects: Project[]; currentProjectId: string | null }) => {
-    try {
-      await Promise.all([
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data.projects)),
-        AsyncStorage.setItem(STORAGE_CURR, JSON.stringify(data.currentProjectId)),
-      ]);
-    } catch (e) {
-      console.warn('Projects persist error', e);
-    }
-  }, []);
-  const persistDebounced = useDebounced(persist, 500);
+  const removeBlock = useCallback((id: string) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => p.id === currentProjectId ? { ...p, blocks: p.blocks.filter(b => b.id !== id), updatedAt: Date.now() } : p)
+    );
+  }, [currentProjectId]);
 
-  useEffect(() => {
-    persistDebounced({ projects, currentProjectId });
-  }, [projects, currentProjectId, persistDebounced]);
+  const moveBlock = useCallback((id: string, delta: number) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const arr = [...p.blocks];
+        const idx = arr.findIndex(b => b.id === id);
+        if (idx < 0) return p;
+        const to = Math.max(0, Math.min(arr.length - 1, idx + delta));
+        if (to === idx) return p;
+        const [item] = arr.splice(idx, 1);
+        arr.splice(to, 0, item);
+        return { ...p, blocks: arr, updatedAt: Date.now() };
+      })
+    );
+  }, [currentProjectId]);
 
-  const value = useMemo<ProjectsContextValue>(
-    () => ({
-      projects,
-      currentProject,
-      setCurrentProjectId,
-      setProject,
-      updateBlock,
-      addProject,
-      addNewProject,
-      createProject,
-      removeProject,
-    }),
-    [projects, currentProject, updateBlock, setProject, addProject, addNewProject, createProject, removeProject]
-  );
+  const updateBlock = useCallback((id: string, patch: Partial<Block>) => {
+    if (!currentProjectId) return;
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const arr = p.blocks.map(b => (b.id === id ? { ...b, ...patch } as Block : b));
+        return { ...p, blocks: arr, updatedAt: Date.now() };
+      })
+    );
+  }, [currentProjectId]);
 
-  return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
+  const value = useMemo<Ctx>(() => ({
+    projects,
+    currentProjectId,
+    currentProject,
+    setCurrentProjectId,
+
+    addNewProject,
+    createProject,
+    removeProject,
+    renameProject,
+    updateProject,
+
+    addBlock,
+    removeBlock,
+    moveBlock,
+    updateBlock,
+  }), [projects, currentProjectId, currentProject, addNewProject, removeProject, renameProject, updateProject, addBlock, removeBlock, moveBlock, updateBlock]);
+
+  return <CtxRef.Provider value={value}>{children}</CtxRef.Provider>;
 }
